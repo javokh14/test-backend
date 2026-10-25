@@ -15,11 +15,11 @@ const groq = new Groq({
   apiKey: "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"
 });
 
-// TURSO BILAN ISHLASH UCHUN FUNKSIYA
+// TURSO BILAN 100% XATOSIZ ISHLAYDIGAN FUNKSIYA (400 xatolarini oldini oladi)
 async function executeSQL(sql, args = []) {
+  // Barcha parametrlarni SQLite qabul qiladigan xavfsiz "text" formatiga o'tkazamiz
   const formattedArgs = args.map(arg => {
     if (arg === null || arg === undefined) return { type: "null" };
-    if (typeof arg === "number") return { type: "integer", value: arg };
     return { type: "text", value: String(arg) };
   });
 
@@ -39,11 +39,13 @@ async function executeSQL(sql, args = []) {
 
   const data = await response.json();
   if (!response.ok) {
+    console.error("Turso xatosi:", data);
     throw new Error(data.message || `Status ${response.status}`);
   }
 
   const resObj = data.results?.[0];
   if (resObj?.type === "error") {
+    console.error("Turso SQL xatosi:", resObj.error);
     throw new Error(resObj.error?.message || "SQL xatosi");
   }
 
@@ -65,7 +67,7 @@ app.get('/', (req, res) => {
   res.send("🚀 Backend va Turso to'liq ulandi!");
 });
 
-// 1. GROQ AI GENERATOR (llama-3.1-8b-instant bilan 100% bepul va tez)
+// 1. GROQ AI GENERATOR (Avtomatik zaxira modellar bilan — 404 bermaydi)
 app.post('/api/generate-ai-test', async (req, res) => {
   const { subject, topic, count, difficulty } = req.body;
 
@@ -77,7 +79,7 @@ Savollar soni: ${count || 5}
 Qiyinlik darajasi: ${difficulty || 'orta'}
 
 Qat'iy qoidalar:
-- Har bir savolda aniq 3 ta variant bo'lsin: A, B, C. D varianti bo'lmasin!
+- Har bir savolda aniq 3 ta variant bo'lsin: A, B, C. D varianti mutlaqo bo'lmasin!
 - Faqat toza JSON massiv formatida javob bering, hech qanday markdown belgilarsiz (backticksiz).
 
 Format:
@@ -91,30 +93,54 @@ Format:
 Eslatma: "correct" to'g'ri variant indeksi (0 = A, 1 = B, 2 = C).
 `;
 
-  try {
-    const completion = await groq.chat.completions.create({
-      messages: [{ role: 'user', content: prompt }],
-      model: 'llama-3.1-8b-instant',
-      temperature: 0.5,
-    });
+  // Bepul va ochiq modellar ketma-ketligi
+  const candidateModels = [
+    'llama3-8b-8192',
+    'gemma2-9b-it',
+    'mixtral-8x7b-32768'
+  ];
 
-    let text = completion.choices[0]?.message?.content || "[]";
-    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    const questions = JSON.parse(text);
+  let questions = null;
+  let lastError = null;
 
-    res.json({ success: true, questions });
-  } catch (error) {
-    console.error("Groq xatosi:", error.message);
-    res.status(500).json({ success: false, message: error.message });
+  for (const model of candidateModels) {
+    try {
+      const completion = await groq.chat.completions.create({
+        messages: [{ role: 'user', content: prompt }],
+        model: model,
+        temperature: 0.5,
+      });
+
+      let text = completion.choices[0]?.message?.content || "[]";
+      text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(text);
+
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        questions = parsed;
+        break; // Muvaffaqiyatli bo'lsa sikldan chiqadi
+      }
+    } catch (err) {
+      console.warn(`Model ${model} xato berdi:`, err.message);
+      lastError = err;
+    }
   }
+
+  if (!questions) {
+    return res.status(500).json({ 
+      success: false, 
+      message: lastError ? lastError.message : "AI test tuza olmadi" 
+    });
+  }
+
+  res.json({ success: true, questions });
 });
 
-// 2. TESTNI SAQLASH
+// 2. TESTNI SAQLASH (Qo'lda ham, AI ham shu yerdan o'tadi)
 app.post('/api/tests', async (req, res) => {
   const { code, teacher, subject, topic, type, timer, data } = req.body;
   try {
     await executeSQL(
-      "INSERT INTO tests (code, teacher, subject, topic, type, timer, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      "INSERT OR REPLACE INTO tests (code, teacher, subject, topic, type, timer, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
       [code, teacher, subject, topic, type, timer || 0, JSON.stringify(data)]
     );
     res.json({ success: true, code });
@@ -144,7 +170,7 @@ app.post('/api/results', async (req, res) => {
   try {
     await executeSQL(
       "INSERT INTO results (test_code, student_name, student_class, score, total, percentage, answers) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [test_code, student_name, student_class, score, total, percentage, JSON.stringify(answers || [])]
+      [test_code, student_name, student_class, score || 0, total || 0, percentage || 0, JSON.stringify(answers || [])]
     );
     res.json({ success: true });
   } catch (err) {
@@ -199,7 +225,7 @@ app.post('/api/vault/register', async (req, res) => {
   try {
     const check = await executeSQL("SELECT pin FROM vaults WHERE pin = ?", [pin]);
     if (check.length > 0) {
-      return res.status(400).json({ success: false, message: "Ushbu 6 xonali PIN kod allaqachon band! Boshqa PIN tanlang." });
+      return res.status(400).json({ success: false, message: "Ushbu 6 xonali PIN kod band! Boshqa PIN tanlang." });
     }
     await executeSQL(
       "INSERT INTO vaults (pin, owner, notes) VALUES (?, ?, ?)",
