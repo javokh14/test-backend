@@ -7,21 +7,20 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 1. TURSO ULANISHI (Siz bergan kalitlar bilan)
+// 1. TURSO ULANISHI (HTTPS protokoli bilan to'g'rilandi)
 const db = createClient({
-  url: "libsql://test-db-javokh14.aws-ap-northeast-1.turso.io",
+  url: "https://test-db-javokh14.aws-ap-northeast-1.turso.io",
   authToken: "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTI5MDYzMDUsImlkIjoiMDFhMTcxOGEtZDYwMS03M2Q5LTg5ODktYzgwYjdjOThiNzEwIiwia2lkIjoiZElaN0NzZExlZXZIZkJwU29vWW9nVGNrd3NMczRXSG1LT0x0aTMzT0tPayIsInJpZCI6ImEyMjQ2OWE0LTliMTQtNDRlNC05ZTllLWZjNDMwZmQ4Y2ExYSJ9.NR7acD5Ucyjyr9eOYjLsQ5aLJGO8xIzyIpL9QqqUxbziCrZYl65xN1MrUjy5A1fW8o-tONVwKG69xnlShO_KBQ"
 });
 
-// 2. GROQ AI ULANISHI (Siz bergan kalit bilan)
+// 2. GROQ AI ULANISHI
 const groq = new Groq({
   apiKey: "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"
 });
 
-// Bazadagi jadvallarni avtomatik yaratish
+// Baza jadvallarini tekshirish va yaratish
 async function initDB() {
   try {
-    // Testlar jadvali
     await db.execute(`
       CREATE TABLE IF NOT EXISTS tests (
         code TEXT PRIMARY KEY,
@@ -32,10 +31,9 @@ async function initDB() {
         timer INTEGER,
         data TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
+      );
     `);
 
-    // Natijalar jadvali
     await db.execute(`
       CREATE TABLE IF NOT EXISTS results (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,52 +45,55 @@ async function initDB() {
         percentage INTEGER,
         answers TEXT,
         submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
+      );
     `);
 
-    // Seyflar jadvali (6 xonali PIN)
     await db.execute(`
       CREATE TABLE IF NOT EXISTS vaults (
         pin TEXT PRIMARY KEY,
         owner TEXT,
         notes TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
+      );
     `);
+
     console.log("✅ Turso bazasi muvaffaqiyatli ulandi va jadvallar tayyor!");
   } catch (err) {
-    console.error("❌ Turso ulanishida xatolik:", err);
+    console.error("❌ Turso ulanishida xatolik:", err.message);
   }
 }
 initDB();
 
-// --- API ENDPOINTLAR ---
+// Test holatini tekshirish
+app.get('/', (req, res) => {
+  res.send("🚀 Backend server va Turso muvaffaqiyatli ishlayapti!");
+});
 
 // 1. GROQ ORQALI TEST GENERATSIYA QILISH
 app.post('/api/generate-ai-test', async (req, res) => {
   const { subject, topic, count, difficulty } = req.body;
 
   const prompt = `
-Siz professional o'qituvchisiz. O'zbek tilida berilgan parametrlarga mos test savollari tuzing.
+Siz o'qituvchisiz. O'zbek tilida test savollari tuzing.
 Fan: ${subject}
 Mavzu: ${topic}
 Savollar soni: ${count || 5}
 Qiyinlik darajasi: ${difficulty || 'orta'}
 
-Qat'iy qoida:
-- Har bir savolda FAQAT 3 ta variant bo'lsin (A, B, C). D varianti bo'lmasin!
-- Toza JSON formatida javob bering, hech qanday markdown belgilarsiz (backtick yoki json so'zisiz).
+Qoidalar:
+- Har bir savolda aniq 3 ta variant bo'lsin (A, B, C).
+- Faqat JSON formatida qaytaring (hech qanday markdown belgilarsiz).
 
-Kutilayotgan JSON formati:
+Format:
 [
   {
-    "q": "Savol matni",
-    "options": ["Variant A matni", "Variant B matni", "Variant C matni"],
+    "q": "Savol matni?",
+    "options": ["A variant", "B variant", "C variant"],
     "correct": 0,
-    "expl": "Nega aynan shu to'g'ri ekanligi haqida qisqa tushuntirish"
+    "expl": "Izoh"
   }
 ]
-Eslatma: "correct" maydoni to'g'ri variant indeksini bildiradi (0 = A, 1 = B, 2 = C).
+Eslatma: "correct" to'g'ri variant indeksi (0 = A, 1 = B, 2 = C).
 `;
 
   try {
@@ -119,7 +120,7 @@ app.post('/api/tests', async (req, res) => {
   try {
     await db.execute({
       sql: "INSERT INTO tests (code, teacher, subject, topic, type, timer, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      args: [code, teacher, subject, topic, type, timer, JSON.stringify(data)]
+      args: [code, teacher, subject, topic, type, timer || 0, JSON.stringify(data)]
     });
     res.json({ success: true, code });
   } catch (err) {
@@ -128,7 +129,7 @@ app.post('/api/tests', async (req, res) => {
   }
 });
 
-// 3. TESTNI KOD BO'YICHA OLISH (O'quvchi kirganda)
+// 3. TESTNI KOD BO'YICHA OLISH
 app.get('/api/tests/:code', async (req, res) => {
   const { code } = req.params;
   try {
@@ -139,7 +140,7 @@ app.get('/api/tests/:code', async (req, res) => {
     if (rs.rows.length === 0) {
       return res.status(404).json({ success: false, message: "Test topilmadi!" });
     }
-    const test = rs.rows[0];
+    const test = { ...rs.rows[0] };
     test.data = JSON.parse(test.data);
     res.json({ success: true, test });
   } catch (err) {
@@ -147,14 +148,14 @@ app.get('/api/tests/:code', async (req, res) => {
   }
 });
 
-// 4. O'QUVCHI NATIJASINI SAQLASH
+// 4. NATIJANI SAQLASH
 app.post('/api/results', async (req, res) => {
   const { test_code, student_name, student_class, score, total, percentage, answers } = req.body;
   try {
     await db.execute({
       sql: `INSERT INTO results (test_code, student_name, student_class, score, total, percentage, answers)
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      args: [test_code, student_name, student_class, score, total, percentage, JSON.stringify(answers)]
+      args: [test_code, student_name, student_class, score, total, percentage, JSON.stringify(answers || [])]
     });
     res.json({ success: true });
   } catch (err) {
@@ -164,25 +165,23 @@ app.post('/api/results', async (req, res) => {
 
 // 5. NATIJALARNI KO'RISH ({code} yoki {code}result)
 app.get('/api/results/:code', async (req, res) => {
-  let code = req.params.code.toLowerCase().replace('result', '').trim();
+  let cleanCode = req.params.code.toLowerCase().replace('result', '').trim();
   try {
-    // Test ma'lumoti
     const testRs = await db.execute({
       sql: "SELECT * FROM tests WHERE code = ?",
-      args: [code]
+      args: [cleanCode]
     });
 
     if (testRs.rows.length === 0) {
       return res.status(404).json({ success: false, message: "Test topilmadi!" });
     }
 
-    const test = testRs.rows[0];
+    const test = { ...testRs.rows[0] };
     test.data = JSON.parse(test.data);
 
-    // O'quvchilar natijalari
     const resultsRs = await db.execute({
       sql: "SELECT * FROM results WHERE test_code = ? ORDER BY submitted_at DESC",
-      args: [code]
+      args: [cleanCode]
     });
 
     const students = resultsRs.rows.map(r => ({
@@ -196,7 +195,7 @@ app.get('/api/results/:code', async (req, res) => {
   }
 });
 
-// 6. QULFLI QAYDLAR (PIN bo'yicha kirish yoki yangi ochish)
+// 6. SEYFGA KIRISH (PIN)
 app.post('/api/vault/login', async (req, res) => {
   const { pin } = req.body;
   try {
@@ -205,9 +204,9 @@ app.post('/api/vault/login', async (req, res) => {
       args: [pin]
     });
     if (rs.rows.length === 0) {
-      return res.status(404).json({ success: false, message: "PIN kod topilmadi!" });
+      return res.status(404).json({ success: false, message: "Bunday PIN kodli seyf topilmadi!" });
     }
-    const vault = rs.rows[0];
+    const vault = { ...rs.rows[0] };
     vault.notes = JSON.parse(vault.notes || "[]");
     res.json({ success: true, vault });
   } catch (err) {
@@ -215,6 +214,7 @@ app.post('/api/vault/login', async (req, res) => {
   }
 });
 
+// 7. YANGI SEYF OCHISH
 app.post('/api/vault/register', async (req, res) => {
   const { pin, owner } = req.body;
   try {
@@ -235,6 +235,7 @@ app.post('/api/vault/register', async (req, res) => {
   }
 });
 
+// 8. SEYFGA QAYD QO'SHISH / YANGILASH
 app.post('/api/vault/save-note', async (req, res) => {
   const { pin, notes } = req.body;
   try {
@@ -248,7 +249,7 @@ app.post('/api/vault/save-note', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server ishga tushdi: Port ${PORT}`);
 });
