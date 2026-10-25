@@ -1,24 +1,27 @@
 const express = require('express');
 const cors = require('cors');
-const { createClient } = require('@libsql/client');
+const { createClient } = require('@libsql/client/web'); // Используем легковесный web-клиент без миграционного движка
 const Groq = require('groq-sdk');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 1. TURSO ULANISHI (HTTPS protokoli bilan to'g'rilandi)
+// Точные параметры подключения к Turso
+const TURSO_URL = "https://test-db-javokh14.aws-ap-northeast-1.turso.io";
+const TURSO_AUTH_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTI5MDYzMDUsImlkIjoiMDFhMTcxOGEtZDYwMS03M2Q5LTg5ODktYzgwYjdjOThiNzEwIiwia2lkIjoiZElaN0NzZExlZXZIZkJwU29vWW9nVGNrd3NMczRXSG1LT0x0aTMzT0tPayIsInJpZCI6ImEyMjQ2OWE0LTliMTQtNDRlNC05ZTllLWZjNDMwZmQ4Y2ExYSJ9.NR7acD5Ucyjyr9eOYjLsQ5aLJGO8xIzyIpL9QqqUxbziCrZYl65xN1MrUjy5A1fW8o-tONVwKG69xnlShO_KBQ";
+
 const db = createClient({
-  url: "https://test-db-javokh14.aws-ap-northeast-1.turso.io",
-  authToken: "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTI5MDYzMDUsImlkIjoiMDFhMTcxOGEtZDYwMS03M2Q5LTg5ODktYzgwYjdjOThiNzEwIiwia2lkIjoiZElaN0NzZExlZXZIZkJwU29vWW9nVGNrd3NMczRXSG1LT0x0aTMzT0tPayIsInJpZCI6ImEyMjQ2OWE0LTliMTQtNDRlNC05ZTllLWZjNDMwZmQ4Y2ExYSJ9.NR7acD5Ucyjyr9eOYjLsQ5aLJGO8xIzyIpL9QqqUxbziCrZYl65xN1MrUjy5A1fW8o-tONVwKG69xnlShO_KBQ"
+  url: TURSO_URL,
+  authToken: TURSO_AUTH_TOKEN
 });
 
-// 2. GROQ AI ULANISHI
+// Groq AI
 const groq = new Groq({
   apiKey: "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"
 });
 
-// Baza jadvallarini tekshirish va yaratish
+// Прямое выполнение DDL-запросов без внутреннего мигратора библиотеки
 async function initDB() {
   try {
     await db.execute(`
@@ -31,7 +34,7 @@ async function initDB() {
         timer INTEGER,
         data TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
+      )
     `);
 
     await db.execute(`
@@ -45,7 +48,7 @@ async function initDB() {
         percentage INTEGER,
         answers TEXT,
         submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
+      )
     `);
 
     await db.execute(`
@@ -54,7 +57,7 @@ async function initDB() {
         owner TEXT,
         notes TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
+      )
     `);
 
     console.log("✅ Turso bazasi muvaffaqiyatli ulandi va jadvallar tayyor!");
@@ -62,14 +65,14 @@ async function initDB() {
     console.error("❌ Turso ulanishida xatolik:", err.message);
   }
 }
+
 initDB();
 
-// Test holatini tekshirish
 app.get('/', (req, res) => {
   res.send("🚀 Backend server va Turso muvaffaqiyatli ishlayapti!");
 });
 
-// 1. GROQ ORQALI TEST GENERATSIYA QILISH
+// 1. AI генерация теста
 app.post('/api/generate-ai-test', async (req, res) => {
   const { subject, topic, count, difficulty } = req.body;
 
@@ -82,7 +85,7 @@ Qiyinlik darajasi: ${difficulty || 'orta'}
 
 Qoidalar:
 - Har bir savolda aniq 3 ta variant bo'lsin (A, B, C).
-- Faqat JSON formatida qaytaring (hech qanday markdown belgilarsiz).
+- Faqat toza JSON formatida qaytaring (hech qanday markdown belgilarsiz).
 
 Format:
 [
@@ -93,7 +96,6 @@ Format:
     "expl": "Izoh"
   }
 ]
-Eslatma: "correct" to'g'ri variant indeksi (0 = A, 1 = B, 2 = C).
 `;
 
   try {
@@ -114,7 +116,7 @@ Eslatma: "correct" to'g'ri variant indeksi (0 = A, 1 = B, 2 = C).
   }
 });
 
-// 2. TESTNI SAQLASH
+// 2. Сохранение теста
 app.post('/api/tests', async (req, res) => {
   const { code, teacher, subject, topic, type, timer, data } = req.body;
   try {
@@ -129,7 +131,7 @@ app.post('/api/tests', async (req, res) => {
   }
 });
 
-// 3. TESTNI KOD BO'YICHA OLISH
+// 3. Получение теста по коду
 app.get('/api/tests/:code', async (req, res) => {
   const { code } = req.params;
   try {
@@ -148,7 +150,7 @@ app.get('/api/tests/:code', async (req, res) => {
   }
 });
 
-// 4. NATIJANI SAQLASH
+// 4. Сохранение результатов ученика
 app.post('/api/results', async (req, res) => {
   const { test_code, student_name, student_class, score, total, percentage, answers } = req.body;
   try {
@@ -163,7 +165,7 @@ app.post('/api/results', async (req, res) => {
   }
 });
 
-// 5. NATIJALARNI KO'RISH ({code} yoki {code}result)
+// 5. Просмотр результатов
 app.get('/api/results/:code', async (req, res) => {
   let cleanCode = req.params.code.toLowerCase().replace('result', '').trim();
   try {
@@ -195,7 +197,7 @@ app.get('/api/results/:code', async (req, res) => {
   }
 });
 
-// 6. SEYFGA KIRISH (PIN)
+// 6. Сейф: Вход
 app.post('/api/vault/login', async (req, res) => {
   const { pin } = req.body;
   try {
@@ -214,7 +216,7 @@ app.post('/api/vault/login', async (req, res) => {
   }
 });
 
-// 7. YANGI SEYF OCHISH
+// 7. Сейф: Создание
 app.post('/api/vault/register', async (req, res) => {
   const { pin, owner } = req.body;
   try {
@@ -235,7 +237,7 @@ app.post('/api/vault/register', async (req, res) => {
   }
 });
 
-// 8. SEYFGA QAYD QO'SHISH / YANGILASH
+// 8. Сейф: Сохранение заметок
 app.post('/api/vault/save-note', async (req, res) => {
   const { pin, notes } = req.body;
   try {
