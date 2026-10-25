@@ -8,179 +8,123 @@ app.use(express.json());
 
 // TURSO PARAMETRLARI
 const TURSO_URL = "https://test-db-javokh14.aws-ap-northeast-1.turso.io/v2/pipeline";
-const TURSO_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTI5MDYzMDUsImlkIjoiMDFhMTcxOGEtZDYwMS03M2Q5LTg5ODktYzgwYjdjOThiNzEwIiwia2lkIjoiZElaN0NzZExlZXZIZkJwU29vWW9nVGNrd3NMczRXSG1LT0x0aTMzT0tPayIsInJpZCI6ImEyMjQ2OWE0LTliMTQtNDRlNC05ZTllLWZjNDMwZmQ4Y2ExYSJ9.NR7acD5Ucyjyr9eOYjLsQ5aLJGO8xIzyIpL9QqqUxbziCrZYl65xN1MrUjy5A1fW8o-tONVwKG69xnlShO_KBQ";
+const TURSO_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTI5MzczOTMsImlkIjoiMDFhMTcxOGEtZDYwMS03M2Q5LTg5ODktYzgwYjdjOThiNzEwIiwia2lkIjoiZElaN0NzZExlZXZIZkJwU29vWW9nVGNrd3NMczRXSG1LT0x0aTMzT0tPayIsInJpZCI6ImEyMjQ2OWE0LTliMTQtNDRlNC05ZTllLWZjNDMwZmQ4Y2ExYSJ9.z08Y5v1D-2aRxwPq1CdsOlL4o2gTfSRhMiT9rnewTptHtJx5_HZQu-YJ2UQe1F0IxzjUkexmf_7ceyGN1Lw6DA";
 
-// Groq AI
 const groq = new Groq({
   apiKey: "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"
 });
 
-// TURSO BILAN TO'G'RIDAN-TO'G'RI GAPLASHUVCHI UNIVERSAL FUNKSIYA (400 xatosi bermaydi)
-async function tursoQuery(sql, params = []) {
-  const args = params.map(val => {
-    if (val === null || val === undefined) return { type: "null" };
-    if (typeof val === "number") return { type: "integer", value: val };
-    return { type: "text", value: String(val) };
+// TURSO BILAN ISHLASH
+async function executeSQL(sql, args = []) {
+  const formattedArgs = args.map(arg => {
+    if (arg === null || arg === undefined) return { type: "null" };
+    if (typeof arg === "number") return { type: "integer", value: arg };
+    return { type: "text", value: String(arg) };
   });
 
   const response = await fetch(TURSO_URL, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${TURSO_TOKEN}`,
+      "Authorization": `Bearer ${TURSO_TOKEN.trim()}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
       requests: [
-        { type: "execute", stmt: { sql, args } },
+        { type: "execute", stmt: { sql, args: formattedArgs } },
         { type: "close" }
       ]
     })
   });
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Turso xatosi: ${response.status} - ${errText}`);
-  }
-
   const data = await response.json();
-  const firstRes = data.results?.[0];
-  if (firstRes?.type === "error") {
-    throw new Error(firstRes.error?.message || "SQL so'rovida xatolik");
+  if (!response.ok) {
+    throw new Error(data.message || `Status ${response.status}`);
   }
 
-  const result = firstRes?.response?.result;
-  if (!result || !result.cols) return { rows: [] };
+  const resObj = data.results?.[0];
+  if (resObj?.type === "error") {
+    throw new Error(resObj.error?.message || "SQL xatosi");
+  }
+
+  const result = resObj?.response?.result;
+  if (!result || !result.cols) return [];
 
   const cols = result.cols.map(c => c.name);
-  const rows = (result.rows || []).map(row => {
-    const obj = {};
+  return (result.rows || []).map(row => {
+    const item = {};
     cols.forEach((col, idx) => {
-      obj[col] = row[idx]?.value !== undefined ? row[idx].value : null;
+      item[col] = row[idx]?.value !== undefined ? row[idx].value : null;
     });
-    return obj;
+    return item;
   });
-
-  return { rows };
 }
 
-// Jadvallarni avtomatik tekshirish va yaratish
-async function initDB() {
-  try {
-    await tursoQuery(`
-      CREATE TABLE IF NOT EXISTS tests (
-        code TEXT PRIMARY KEY,
-        teacher TEXT,
-        subject TEXT,
-        topic TEXT,
-        type TEXT,
-        timer INTEGER,
-        data TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await tursoQuery(`
-      CREATE TABLE IF NOT EXISTS results (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        test_code TEXT,
-        student_name TEXT,
-        student_class TEXT,
-        score INTEGER,
-        total INTEGER,
-        percentage INTEGER,
-        answers TEXT,
-        submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await tursoQuery(`
-      CREATE TABLE IF NOT EXISTS vaults (
-        pin TEXT PRIMARY KEY,
-        owner TEXT,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    console.log("✅ Turso bazasi muvaffaqiyatli ulandi va jadvallar tayyor!");
-  } catch (err) {
-    console.error("❌ Turso ulanishida xatolik:", err.message);
-  }
-}
-initDB();
-
+// Bosh sahifa tekshiruvi
 app.get('/', (req, res) => {
-  res.send("🚀 Backend server va Turso to'liq ishlayapti!");
+  res.send("🚀 Backend va Turso to'liq ulandi!");
 });
 
-// 1. GROQ AI GENERATORI (Faqat A, B, C variantlar)
+// 1. GROQ AI GENERATOR
 app.post('/api/generate-ai-test', async (req, res) => {
   const { subject, topic, count, difficulty } = req.body;
 
   const prompt = `
-Siz professional o'qituvchisiz. O'zbek tilida test savollari tuzing.
+Siz o'qituvchisiz. O'zbek tilida berilgan parametrlar bo'yicha test savollari tuzing:
 Fan: ${subject}
 Mavzu: ${topic}
 Savollar soni: ${count || 5}
 Qiyinlik darajasi: ${difficulty || 'orta'}
 
 Qoidalar:
-- Har bir savolda FAQAT 3 ta variant bo'lsin (A, B, C). D varianti bo'lmasin!
-- Toza JSON formatida javob bering, hech qanday markdown belgilarsiz (backticksiz).
+- Har bir savolda aniq 3 ta variant bo'lsin: A, B, C.
+- Faqat toza JSON formatida javob bering (markdown belgilarisiz).
 
 Format:
 [
   {
     "q": "Savol matni?",
-    "options": ["A variant matni", "B variant matni", "C variant matni"],
+    "options": ["A varianti", "B varianti", "C varianti"],
     "correct": 0
   }
 ]
-Eslatma: "correct" to'g'ri variant indeksi (0 = A, 1 = B, 2 = C).
 `;
 
   try {
-    const chatCompletion = await groq.chat.completions.create({
+    const completion = await groq.chat.completions.create({
       messages: [{ role: 'user', content: prompt }],
       model: 'llama-3.3-70b-versatile',
       temperature: 0.5,
     });
 
-    let text = chatCompletion.choices[0]?.message?.content || "[]";
+    let text = completion.choices[0]?.message?.content || "[]";
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    const questions = JSON.parse(text);
-
-    res.json({ success: true, questions });
+    res.json({ success: true, questions: JSON.parse(text) });
   } catch (error) {
-    console.error("Groq xatosi:", error);
-    res.status(500).json({ success: false, message: "AI generatsiyasida xatolik yuz berdi" });
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// 2. TESTNI TURSOGA SAQLASH
+// 2. TESTNI SAQLASH
 app.post('/api/tests', async (req, res) => {
   const { code, teacher, subject, topic, type, timer, data } = req.body;
   try {
-    await tursoQuery(
+    await executeSQL(
       "INSERT INTO tests (code, teacher, subject, topic, type, timer, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
       [code, teacher, subject, topic, type, timer || 0, JSON.stringify(data)]
     );
     res.json({ success: true, code });
   } catch (err) {
-    console.error("Test saqlash xatosi:", err.message);
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// 3. TESTNI KOD BO'YICHA OLISH (O'quvchi kirganda)
+// 3. TESTNI KOD BO'YICHA OLISH
 app.get('/api/tests/:code', async (req, res) => {
-  const { code } = req.params;
   try {
-    const { rows } = await tursoQuery("SELECT * FROM tests WHERE code = ?", [code]);
-    if (rows.length === 0) {
-      return res.status(404).json({ success: false, message: "Bunday test topilmadi!" });
-    }
-    const test = { ...rows[0] };
+    const rows = await executeSQL("SELECT * FROM tests WHERE code = ?", [req.params.code]);
+    if (rows.length === 0) return res.status(404).json({ success: false, message: "Test topilmadi!" });
+
+    const test = rows[0];
     test.data = JSON.parse(test.data);
     res.json({ success: true, test });
   } catch (err) {
@@ -192,7 +136,7 @@ app.get('/api/tests/:code', async (req, res) => {
 app.post('/api/results', async (req, res) => {
   const { test_code, student_name, student_class, score, total, percentage, answers } = req.body;
   try {
-    await tursoQuery(
+    await executeSQL(
       "INSERT INTO results (test_code, student_name, student_class, score, total, percentage, answers) VALUES (?, ?, ?, ?, ?, ?, ?)",
       [test_code, student_name, student_class, score, total, percentage, JSON.stringify(answers || [])]
     );
@@ -204,22 +148,20 @@ app.post('/api/results', async (req, res) => {
 
 // 5. NATIJALARNI KO'RISH ({code} yoki {code}result)
 app.get('/api/results/:code', async (req, res) => {
-  let cleanCode = req.params.code.toLowerCase().replace('result', '').trim();
+  const code = req.params.code.toLowerCase().replace('result', '').trim();
   try {
-    const testResult = await tursoQuery("SELECT * FROM tests WHERE code = ?", [cleanCode]);
-    if (testResult.rows.length === 0) {
-      return res.status(404).json({ success: false, message: "Test topilmadi!" });
-    }
+    const testRows = await executeSQL("SELECT * FROM tests WHERE code = ?", [code]);
+    if (testRows.length === 0) return res.status(404).json({ success: false, message: "Test topilmadi!" });
 
-    const test = { ...testResult.rows[0] };
+    const test = testRows[0];
     test.data = JSON.parse(test.data);
 
-    const studentsResult = await tursoQuery(
+    const studentRows = await executeSQL(
       "SELECT * FROM results WHERE test_code = ? ORDER BY submitted_at DESC",
-      [cleanCode]
+      [code]
     );
 
-    const students = studentsResult.rows.map(r => ({
+    const students = studentRows.map(r => ({
       ...r,
       answers: JSON.parse(r.answers || "[]")
     }));
@@ -230,15 +172,14 @@ app.get('/api/results/:code', async (req, res) => {
   }
 });
 
-// 6. SEYF: KIRISH (PIN)
+// 6. SEYF: KIRISH
 app.post('/api/vault/login', async (req, res) => {
   const { pin } = req.body;
   try {
-    const { rows } = await tursoQuery("SELECT * FROM vaults WHERE pin = ?", [pin]);
-    if (rows.length === 0) {
-      return res.status(404).json({ success: false, message: "Bunday PIN kodli seyf topilmadi!" });
-    }
-    const vault = { ...rows[0] };
+    const rows = await executeSQL("SELECT * FROM vaults WHERE pin = ?", [pin]);
+    if (rows.length === 0) return res.status(404).json({ success: false, message: "Bunday PIN kodli seyf topilmadi!" });
+
+    const vault = rows[0];
     vault.notes = JSON.parse(vault.notes || "[]");
     res.json({ success: true, vault });
   } catch (err) {
@@ -250,11 +191,11 @@ app.post('/api/vault/login', async (req, res) => {
 app.post('/api/vault/register', async (req, res) => {
   const { pin, owner } = req.body;
   try {
-    const check = await tursoQuery("SELECT pin FROM vaults WHERE pin = ?", [pin]);
-    if (check.rows.length > 0) {
-      return res.status(400).json({ success: false, message: "Ushbu 6 xonali PIN kod band! Boshqa PIN tanlang." });
+    const check = await executeSQL("SELECT pin FROM vaults WHERE pin = ?", [pin]);
+    if (check.length > 0) {
+      return res.status(400).json({ success: false, message: "Ushbu 6 xonali PIN kod allaqachon band! Boshqa PIN tanlang." });
     }
-    await tursoQuery(
+    await executeSQL(
       "INSERT INTO vaults (pin, owner, notes) VALUES (?, ?, ?)",
       [pin, owner || "Ustoz", JSON.stringify([])]
     );
@@ -268,7 +209,7 @@ app.post('/api/vault/register', async (req, res) => {
 app.post('/api/vault/save-note', async (req, res) => {
   const { pin, notes } = req.body;
   try {
-    await tursoQuery("UPDATE vaults SET notes = ? WHERE pin = ?", [JSON.stringify(notes), pin]);
+    await executeSQL("UPDATE vaults SET notes = ? WHERE pin = ?", [JSON.stringify(notes), pin]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -277,5 +218,5 @@ app.post('/api/vault/save-note', async (req, res) => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Server ishga tushdi: Port ${PORT}`);
+  console.log(`Server ${PORT}-portda muvaffaqiyatli ishga tushdi`);
 });
