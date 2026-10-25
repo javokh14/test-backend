@@ -10,11 +10,12 @@ app.use(express.json());
 const TURSO_URL = "https://test-db-javokh14.aws-ap-northeast-1.turso.io/v2/pipeline";
 const TURSO_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTI5MzczOTMsImlkIjoiMDFhMTcxOGEtZDYwMS03M2Q5LTg5ODktYzgwYjdjOThiNzEwIiwia2lkIjoiZElaN0NzZExlZXZIZkJwU29vWW9nVGNrd3NMczRXSG1LT0x0aTMzT0tPayIsInJpZCI6ImEyMjQ2OWE0LTliMTQtNDRlNC05ZTllLWZjNDMwZmQ4Y2ExYSJ9.z08Y5v1D-2aRxwPq1CdsOlL4o2gTfSRhMiT9rnewTptHtJx5_HZQu-YJ2UQe1F0IxzjUkexmf_7ceyGN1Lw6DA";
 
+// GROQ AI
 const groq = new Groq({
   apiKey: "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"
 });
 
-// TURSO BILAN ISHLASH
+// TURSO BILAN ISHLASH UCHUN FUNKSIYA
 async function executeSQL(sql, args = []) {
   const formattedArgs = args.map(arg => {
     if (arg === null || arg === undefined) return { type: "null" };
@@ -59,47 +60,51 @@ async function executeSQL(sql, args = []) {
   });
 }
 
-// Bosh sahifa tekshiruvi
+// Bosh sahifa
 app.get('/', (req, res) => {
   res.send("🚀 Backend va Turso to'liq ulandi!");
 });
 
-// 1. GROQ AI GENERATOR
+// 1. GROQ AI GENERATOR (llama-3.1-8b-instant bilan 100% bepul va tez)
 app.post('/api/generate-ai-test', async (req, res) => {
   const { subject, topic, count, difficulty } = req.body;
 
   const prompt = `
-Siz o'qituvchisiz. O'zbek tilida berilgan parametrlar bo'yicha test savollari tuzing:
+Siz professional o'qituvchisiz. O'zbek tilida berilgan parametrlar bo'yicha test savollari tuzing:
 Fan: ${subject}
 Mavzu: ${topic}
 Savollar soni: ${count || 5}
 Qiyinlik darajasi: ${difficulty || 'orta'}
 
-Qoidalar:
-- Har bir savolda aniq 3 ta variant bo'lsin: A, B, C.
-- Faqat toza JSON formatida javob bering (markdown belgilarisiz).
+Qat'iy qoidalar:
+- Har bir savolda aniq 3 ta variant bo'lsin: A, B, C. D varianti bo'lmasin!
+- Faqat toza JSON massiv formatida javob bering, hech qanday markdown belgilarsiz (backticksiz).
 
 Format:
 [
   {
     "q": "Savol matni?",
-    "options": ["A varianti", "B varianti", "C varianti"],
+    "options": ["A varianti matni", "B varianti matni", "C varianti matni"],
     "correct": 0
   }
 ]
+Eslatma: "correct" to'g'ri variant indeksi (0 = A, 1 = B, 2 = C).
 `;
 
   try {
     const completion = await groq.chat.completions.create({
       messages: [{ role: 'user', content: prompt }],
-      model: 'llama-3.3-70b-versatile',
+      model: 'llama-3.1-8b-instant',
       temperature: 0.5,
     });
 
     let text = completion.choices[0]?.message?.content || "[]";
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    res.json({ success: true, questions: JSON.parse(text) });
+    const questions = JSON.parse(text);
+
+    res.json({ success: true, questions });
   } catch (error) {
+    console.error("Groq xatosi:", error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -114,6 +119,7 @@ app.post('/api/tests', async (req, res) => {
     );
     res.json({ success: true, code });
   } catch (err) {
+    console.error("Test saqlash xatosi:", err.message);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -146,7 +152,7 @@ app.post('/api/results', async (req, res) => {
   }
 });
 
-// 5. NATIJALARNI KO'RISH ({code} yoki {code}result)
+// 5. NATIJALARNI KO'RISH
 app.get('/api/results/:code', async (req, res) => {
   const code = req.params.code.toLowerCase().replace('result', '').trim();
   try {
