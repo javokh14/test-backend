@@ -1,7 +1,7 @@
 {
   "name": "ai-test-backend",
   "version": "1.0.0",
-  "description": "AI Test Platformasi Render Backendi",
+  "description": "AI Test Platform Backend",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
