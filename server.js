@@ -2,12 +2,21 @@ const express = require('express');
 const cors = require('cors');
 
 const app = express();
-app.use(cors());
+
+// Barcha domenlar va so'rovlar uchun ochiq CORS
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'DELETE', 'PUT', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
 
+// TURSO PARAMETRLARI
 const TURSO_URL = "https://test-db-javokh14.aws-ap-northeast-1.turso.io/v2/pipeline";
 const TURSO_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTI5MzczOTMsImlkIjoiMDFhMTcxOGEtZDYwMS03M2Q5LTg5ODktYzgwYjdjOThiNzEwIiwia2lkIjoiZElaN0NzZExlZXZIZkJwU29vWW9nVGNrd3NMczRXSG1LT0x0aTMzT0tPayIsInJpZCI6ImEyMjQ2OWE0LTliMTQtNDRlNC05ZTllLWZjNDMwZmQ4Y2ExYSJ9.z08Y5v1D-2aRxwPq1CdsOlL4o2gTfSRhMiT9rnewTptHtJx5_HZQu-YJ2UQe1F0IxzjUkexmf_7ceyGN1Lw6DA";
 
+// TURSO SQL SO'ROV FUNKSIYASI
 async function executeSQL(sql, args = []) {
   const formattedArgs = args.map(arg => {
     if (arg === null || arg === undefined) return { type: "null" };
@@ -29,10 +38,14 @@ async function executeSQL(sql, args = []) {
   });
 
   const data = await response.json();
-  if (!response.ok) throw new Error(data.message || `Status ${response.status}`);
+  if (!response.ok) {
+    throw new Error(data.message || `Turso xatosi: ${response.status}`);
+  }
 
   const resObj = data.results?.[0];
-  if (resObj?.type === "error") throw new Error(resObj.error?.message || "SQL xatosi");
+  if (resObj?.type === "error") {
+    throw new Error(resObj.error?.message || "SQL xatosi");
+  }
 
   const result = resObj?.response?.result;
   if (!result || !result.cols) return [];
@@ -47,15 +60,22 @@ async function executeSQL(sql, args = []) {
   });
 }
 
-app.get('/', (req, res) => res.send("🚀 EduSmart Backend to'liq ishlamoqda!"));
+// Bosh sahifa tekshiruvi
+app.get('/', (req, res) => {
+  res.send("🚀 EduSmart Backend to'liq ishlamoqda!");
+});
 
-// 1. Sayt holati
+// 1. SAYT XOLATI (O'chirish / Yoqish)
 app.get('/api/site-status', async (req, res) => {
   try {
     const rows = await executeSQL("SELECT key, value FROM site_settings");
     const settings = {};
     rows.forEach(r => settings[r.key] = r.value);
-    res.json({ success: true, status: settings.site_status || 'active', reason: settings.site_reason || '' });
+    res.json({
+      success: true,
+      status: settings.site_status || 'active',
+      reason: settings.site_reason || ''
+    });
   } catch (err) {
     res.json({ success: true, status: 'active', reason: '' });
   }
@@ -63,7 +83,9 @@ app.get('/api/site-status', async (req, res) => {
 
 app.post('/api/site-status', async (req, res) => {
   const { status, reason, adminPin } = req.body;
-  if (adminPin !== "201049") return res.status(403).json({ success: false, message: "Parol noto'g'ri!" });
+  if (adminPin !== "201049") {
+    return res.status(403).json({ success: false, message: "Parol noto'g'ri!" });
+  }
   try {
     await executeSQL("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('site_status', ?)", [status]);
     await executeSQL("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('site_reason', ?)", [reason || '']);
@@ -73,7 +95,7 @@ app.post('/api/site-status', async (req, res) => {
   }
 });
 
-// 2. Testlar
+// 2. TESTLARNI SAQLASH VA OLISH
 app.post('/api/tests', async (req, res) => {
   const { code, teacher, subject, topic, type, timer, data } = req.body;
   try {
@@ -90,7 +112,9 @@ app.post('/api/tests', async (req, res) => {
 app.get('/api/tests/:code', async (req, res) => {
   try {
     const rows = await executeSQL("SELECT * FROM tests WHERE code = ?", [req.params.code]);
-    if (rows.length === 0) return res.status(404).json({ success: false, message: "Bunday test topilmadi!" });
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Bunday test topilmadi!" });
+    }
     const test = rows[0];
     test.data = JSON.parse(test.data);
     res.json({ success: true, test });
@@ -99,13 +123,15 @@ app.get('/api/tests/:code', async (req, res) => {
   }
 });
 
-// 3. Ruxsat so'rovlari
+// 3. O'QUVCHI: RUXSAT SO'ROVLARI
 app.post('/api/request-access', async (req, res) => {
   const { test_code, student_name, student_class } = req.body;
   try {
     const cleanCode = test_code.toLowerCase().replace('result', '').trim();
     const tests = await executeSQL("SELECT code FROM tests WHERE code = ?", [cleanCode]);
-    if (tests.length === 0) return res.status(404).json({ success: false, message: "Bunday test kodi mavjud emas!" });
+    if (tests.length === 0) {
+      return res.status(404).json({ success: false, message: "Bunday test kodi mavjud emas!" });
+    }
 
     const existing = await executeSQL(
       "SELECT id FROM test_requests WHERE test_code = ? AND LOWER(student_name) = LOWER(?) AND student_class = ?",
@@ -141,7 +167,7 @@ app.get('/api/check-request-status/:id', async (req, res) => {
   }
 });
 
-// 4. Admin boshqaruvi
+// 4. ADMIN: SO'ROVLARNI BOSHQARISH
 app.get('/api/admin/requests/:code', async (req, res) => {
   const cleanCode = req.params.code.toLowerCase().replace('result', '').trim();
   try {
@@ -175,7 +201,7 @@ app.post('/api/admin/update-all-requests', async (req, res) => {
   }
 });
 
-// 5. Natijalar
+// 5. NATIJALAR
 app.post('/api/results', async (req, res) => {
   const { test_code, student_name, student_class, score, total, percentage, answers } = req.body;
   try {
@@ -224,7 +250,7 @@ app.delete('/api/results/clear-all/:code', async (req, res) => {
   }
 });
 
-// 6. Seyf
+// 6. SEYF TIZIMI
 app.post('/api/vault/login', async (req, res) => {
   const { pin } = req.body;
   try {
