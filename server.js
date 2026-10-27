@@ -48,10 +48,71 @@ async function executeSQL(sql, args = []) {
   });
 }
 
-// Bosh sahifa
-app.get('/', (req, res) => res.send("🚀 Backend to'liq ishlamoqda!"));
+// BARCHA JADVALLARNI AVTOMATIK YARATISH (Turso'da xatolik bermaydi)
+async function initDB() {
+  try {
+    await executeSQL(`
+      CREATE TABLE IF NOT EXISTS tests (
+        code TEXT PRIMARY KEY,
+        teacher TEXT,
+        subject TEXT,
+        topic TEXT,
+        type TEXT,
+        timer INTEGER,
+        data TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await executeSQL(`
+      CREATE TABLE IF NOT EXISTS results (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        test_code TEXT,
+        student_name TEXT,
+        student_class TEXT,
+        score INTEGER,
+        total INTEGER,
+        percentage INTEGER,
+        answers TEXT,
+        submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await executeSQL(`
+      CREATE TABLE IF NOT EXISTS vaults (
+        pin TEXT PRIMARY KEY,
+        owner TEXT,
+        notes TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await executeSQL(`
+      CREATE TABLE IF NOT EXISTS test_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        test_code TEXT,
+        student_name TEXT,
+        student_class TEXT,
+        status TEXT DEFAULT 'pending',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await executeSQL(`
+      CREATE TABLE IF NOT EXISTS site_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )
+    `);
+    await executeSQL(`
+      INSERT OR IGNORE INTO site_settings (key, value) VALUES ('site_status', 'active'), ('site_reason', '')
+    `);
+    console.log("✅ Barcha jadvallar avtomatik yaratildi va tayyor!");
+  } catch (err) {
+    console.error("❌ initDB xatosi:", err.message);
+  }
+}
+initDB();
 
-// 1. SAYT XOLATI
+app.get('/', (req, res) => res.send("🚀 EduSmart Backend to'liq ishlamoqda!"));
+
+// 1. SAYT XOLATI (O'chirish / Yoqish)
 app.get('/api/site-status', async (req, res) => {
   try {
     const rows = await executeSQL("SELECT key, value FROM site_settings");
@@ -65,7 +126,7 @@ app.get('/api/site-status', async (req, res) => {
 
 app.post('/api/site-status', async (req, res) => {
   const { status, reason, adminPin } = req.body;
-  if (adminPin !== "201049") return res.status(403).json({ success: false, message: "PIN noto'g'ri!" });
+  if (adminPin !== "201049") return res.status(403).json({ success: false, message: "Parol noto'g'ri!" });
   try {
     await executeSQL("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('site_status', ?)", [status]);
     await executeSQL("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('site_reason', ?)", [reason || '']);
@@ -75,7 +136,7 @@ app.post('/api/site-status', async (req, res) => {
   }
 });
 
-// 2. TESTLARNI SAQLASH VA OLISH
+// 2. TESTNI SAQLASH VA OLISH
 app.post('/api/tests', async (req, res) => {
   const { code, teacher, subject, topic, type, timer, data } = req.body;
   try {
@@ -92,7 +153,7 @@ app.post('/api/tests', async (req, res) => {
 app.get('/api/tests/:code', async (req, res) => {
   try {
     const rows = await executeSQL("SELECT * FROM tests WHERE code = ?", [req.params.code]);
-    if (rows.length === 0) return res.status(404).json({ success: false, message: "Test topilmadi!" });
+    if (rows.length === 0) return res.status(404).json({ success: false, message: "Bunday test topilmadi!" });
     const test = rows[0];
     test.data = JSON.parse(test.data);
     res.json({ success: true, test });
@@ -101,7 +162,7 @@ app.get('/api/tests/:code', async (req, res) => {
   }
 });
 
-// 3. TESTGA RUXSAT SO'ROVLARI (O'quvchi)
+// 3. O'QUVCHI: TESTGA RUXSAT SO'ROVI
 app.post('/api/request-access', async (req, res) => {
   const { test_code, student_name, student_class } = req.body;
   try {
@@ -143,7 +204,7 @@ app.get('/api/check-request-status/:id', async (req, res) => {
   }
 });
 
-// 4. ADMIN: SO'ROVLARNI KO'RISH VA BOSHQARISH
+// 4. ADMIN: SO'ROVLARNI BOSHQARISH
 app.get('/api/admin/requests/:code', async (req, res) => {
   const cleanCode = req.params.code.toLowerCase().replace('result', '').trim();
   try {
@@ -154,10 +215,9 @@ app.get('/api/admin/requests/:code', async (req, res) => {
   }
 });
 
-// Bittalab status o'zgartirish (approved, rejected, review)
 app.post('/api/admin/update-request', async (req, res) => {
   const { id, status, adminPin } = req.body;
-  if (adminPin !== "201049") return res.status(403).json({ success: false, message: "PIN noto'g'ri!" });
+  if (adminPin !== "201049") return res.status(403).json({ success: false, message: "Parol noto'g'ri!" });
   try {
     await executeSQL("UPDATE test_requests SET status = ? WHERE id = ?", [status, id]);
     res.json({ success: true });
@@ -166,10 +226,10 @@ app.post('/api/admin/update-request', async (req, res) => {
   }
 });
 
-// Barchasini birdaniga o'zgartirish (Batch Update)
+// Barchasini birdaniga o'zgartirish (approved, review, rejected)
 app.post('/api/admin/update-all-requests', async (req, res) => {
   const { test_code, status, adminPin } = req.body;
-  if (adminPin !== "201049") return res.status(403).json({ success: false, message: "PIN noto'g'ri!" });
+  if (adminPin !== "201049") return res.status(403).json({ success: false, message: "Parol noto'g'ri!" });
   try {
     const cleanCode = test_code.toLowerCase().replace('result', '').trim();
     await executeSQL("UPDATE test_requests SET status = ? WHERE test_code = ?", [status, cleanCode]);
@@ -265,4 +325,4 @@ app.post('/api/vault/save-note', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Server port: ${PORT}`));
+app.listen(PORT, () => console.log(`Server ${PORT}-portda ishlamoqda`));
