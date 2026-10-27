@@ -5,7 +5,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// TURSO PARAMETRLARI
 const TURSO_URL = "https://test-db-javokh14.aws-ap-northeast-1.turso.io/v2/pipeline";
 const TURSO_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTI5MzczOTMsImlkIjoiMDFhMTcxOGEtZDYwMS03M2Q5LTg5ODktYzgwYjdjOThiNzEwIiwia2lkIjoiZElaN0NzZExlZXZIZkJwU29vWW9nVGNrd3NMczRXSG1LT0x0aTMzT0tPayIsInJpZCI6ImEyMjQ2OWE0LTliMTQtNDRlNC05ZTllLWZjNDMwZmQ4Y2ExYSJ9.z08Y5v1D-2aRxwPq1CdsOlL4o2gTfSRhMiT9rnewTptHtJx5_HZQu-YJ2UQe1F0IxzjUkexmf_7ceyGN1Lw6DA";
 
@@ -48,71 +47,9 @@ async function executeSQL(sql, args = []) {
   });
 }
 
-// BARCHA JADVALLARNI AVTOMATIK YARATISH (Turso'da xatolik bermaydi)
-async function initDB() {
-  try {
-    await executeSQL(`
-      CREATE TABLE IF NOT EXISTS tests (
-        code TEXT PRIMARY KEY,
-        teacher TEXT,
-        subject TEXT,
-        topic TEXT,
-        type TEXT,
-        timer INTEGER,
-        data TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    await executeSQL(`
-      CREATE TABLE IF NOT EXISTS results (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        test_code TEXT,
-        student_name TEXT,
-        student_class TEXT,
-        score INTEGER,
-        total INTEGER,
-        percentage INTEGER,
-        answers TEXT,
-        submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    await executeSQL(`
-      CREATE TABLE IF NOT EXISTS vaults (
-        pin TEXT PRIMARY KEY,
-        owner TEXT,
-        notes TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    await executeSQL(`
-      CREATE TABLE IF NOT EXISTS test_requests (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        test_code TEXT,
-        student_name TEXT,
-        student_class TEXT,
-        status TEXT DEFAULT 'pending',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    await executeSQL(`
-      CREATE TABLE IF NOT EXISTS site_settings (
-        key TEXT PRIMARY KEY,
-        value TEXT
-      )
-    `);
-    await executeSQL(`
-      INSERT OR IGNORE INTO site_settings (key, value) VALUES ('site_status', 'active'), ('site_reason', '')
-    `);
-    console.log("✅ Barcha jadvallar avtomatik yaratildi va tayyor!");
-  } catch (err) {
-    console.error("❌ initDB xatosi:", err.message);
-  }
-}
-initDB();
-
 app.get('/', (req, res) => res.send("🚀 EduSmart Backend to'liq ishlamoqda!"));
 
-// 1. SAYT XOLATI (O'chirish / Yoqish)
+// 1. Sayt holati
 app.get('/api/site-status', async (req, res) => {
   try {
     const rows = await executeSQL("SELECT key, value FROM site_settings");
@@ -136,7 +73,7 @@ app.post('/api/site-status', async (req, res) => {
   }
 });
 
-// 2. TESTNI SAQLASH VA OLISH
+// 2. Testlar
 app.post('/api/tests', async (req, res) => {
   const { code, teacher, subject, topic, type, timer, data } = req.body;
   try {
@@ -162,7 +99,7 @@ app.get('/api/tests/:code', async (req, res) => {
   }
 });
 
-// 3. O'QUVCHI: TESTGA RUXSAT SO'ROVI
+// 3. Ruxsat so'rovlari
 app.post('/api/request-access', async (req, res) => {
   const { test_code, student_name, student_class } = req.body;
   try {
@@ -204,7 +141,7 @@ app.get('/api/check-request-status/:id', async (req, res) => {
   }
 });
 
-// 4. ADMIN: SO'ROVLARNI BOSHQARISH
+// 4. Admin boshqaruvi
 app.get('/api/admin/requests/:code', async (req, res) => {
   const cleanCode = req.params.code.toLowerCase().replace('result', '').trim();
   try {
@@ -226,7 +163,6 @@ app.post('/api/admin/update-request', async (req, res) => {
   }
 });
 
-// Barchasini birdaniga o'zgartirish (approved, review, rejected)
 app.post('/api/admin/update-all-requests', async (req, res) => {
   const { test_code, status, adminPin } = req.body;
   if (adminPin !== "201049") return res.status(403).json({ success: false, message: "Parol noto'g'ri!" });
@@ -239,7 +175,7 @@ app.post('/api/admin/update-all-requests', async (req, res) => {
   }
 });
 
-// 5. NATIJALAR
+// 5. Natijalar
 app.post('/api/results', async (req, res) => {
   const { test_code, student_name, student_class, score, total, percentage, answers } = req.body;
   try {
@@ -288,7 +224,7 @@ app.delete('/api/results/clear-all/:code', async (req, res) => {
   }
 });
 
-// 6. SEYF
+// 6. Seyf
 app.post('/api/vault/login', async (req, res) => {
   const { pin } = req.body;
   try {
