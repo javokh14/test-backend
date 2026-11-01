@@ -3,7 +3,6 @@ const cors = require('cors');
 
 const app = express();
 
-// Barcha domenlar va so'rovlar uchun ochiq CORS
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'DELETE', 'PUT', 'PATCH', 'OPTIONS'],
@@ -12,11 +11,10 @@ app.use(cors({
 
 app.use(express.json());
 
-// TURSO PARAMETRLARI
+// TURSO SOZLAMALARI
 const TURSO_URL = "https://test-db-javokh14.aws-ap-northeast-1.turso.io/v2/pipeline";
 const TURSO_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTI5MzczOTMsImlkIjoiMDFhMTcxOGEtZDYwMS03M2Q5LTg5ODktYzgwYjdjOThiNzEwIiwia2lkIjoiZElaN0NzZExlZXZIZkJwU29vWW9nVGNrd3NMczRXSG1LT0x0aTMzT0tPayIsInJpZCI6ImEyMjQ2OWE0LTliMTQtNDRlNC05ZTllLWZjNDMwZmQ4Y2ExYSJ9.z08Y5v1D-2aRxwPq1CdsOlL4o2gTfSRhMiT9rnewTptHtJx5_HZQu-YJ2UQe1F0IxzjUkexmf_7ceyGN1Lw6DA";
 
-// TURSO SQL SO'ROV FUNKSIYASI
 async function executeSQL(sql, args = []) {
   const formattedArgs = args.map(arg => {
     if (arg === null || arg === undefined) return { type: "null" };
@@ -38,64 +36,107 @@ async function executeSQL(sql, args = []) {
   });
 
   const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.message || `Turso xatosi: ${response.status}`);
-  }
-
-  const resObj = data.results?.[0];
-  if (resObj?.type === "error") {
-    throw new Error(resObj.error?.message || "SQL xatosi");
-  }
-
-  const result = resObj?.response?.result;
-  if (!result || !result.cols) return [];
-
-  const cols = result.cols.map(c => c.name);
-  return (result.rows || []).map(row => {
-    const item = {};
-    cols.forEach((col, idx) => {
-      item[col] = row[idx]?.value !== undefined ? row[idx].value : null;
+  if (!response.ok) throw new Error(data.message || `Turso xatosi: ${response.status}`);  const resObj = data.results?.[0]; if (resObj?.type === "error") throw new Error(resObj.error?.message \vert{}\vert{} "SQL xatosi");  const result = resObj?.response?.result; if (!result \vert{}\vert{} !result.cols) return [];  const cols = result.cols.map(c => c.name); return (result.rows \vert{}\vert{} []).map(row => { const item = {}; cols.forEach((col, idx) => { item[col] = row[idx]?.value !== undefined ? row[idx].value : null; }); return item; }); }  app.get('/', (req, res) => res.send("🚀 EduSmart Backend to'liq ishlamoqda!"));  // 1. SAYT XOLATI app.get('/api/site-status', async (req, res) => { try { const rows = await executeSQL("SELECT key, value FROM site_settings"); const settings = {}; rows.forEach(r => settings[r.key] = r.value); res.json({ success: true, status: settings.site_status \vert{}\vert{} 'active', reason: settings.site_reason \vert{}\vert{} '' }); } catch (err) { res.json({ success: true, status: 'active', reason: '' }); } });  app.post('/api/site-status', async (req, res) => { const { status, reason, adminPin } = req.body; if (adminPin !== "201049") return res.status(403).json({ success: false, message: "Parol noto'g'ri!" }); try { await executeSQL("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('site_status', ?)", [status]); await executeSQL("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('site_reason', ?)", [reason \vert{}\vert{} '']); res.json({ success: true }); } catch (err) { res.status(500).json({ success: false, message: err.message }); } });  // 2. GEMINI BOSHQARUVI VA API CHECKER app.get('/api/admin/gemini-status', async (req, res) => { try { const rows = await executeSQL("SELECT value FROM site_settings WHERE key = 'gemini_api_key'"); const apiKey = rows[0]?.value;  if (!apiKey \vert{}\vert{} apiKey.trim() === '') { return res.json({ success: true, status: 'missing', message: "Gemini API kaliti kiritilmagan!" }); }  // Google Gemini API bilan tekshirish (Ping) const testUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey.trim()}`;
+    const testRes = await fetch(testUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: "ping" }] }]
+      })
     });
-    return item;
-  });
-}
 
-// Bosh sahifa tekshiruvi
-app.get('/', (req, res) => {
-  res.send("🚀 EduSmart Backend to'liq ishlamoqda!");
-});
-
-// 1. SAYT XOLATI (O'chirish / Yoqish)
-app.get('/api/site-status', async (req, res) => {
-  try {
-    const rows = await executeSQL("SELECT key, value FROM site_settings");
-    const settings = {};
-    rows.forEach(r => settings[r.key] = r.value);
-    res.json({
-      success: true,
-      status: settings.site_status || 'active',
-      reason: settings.site_reason || ''
-    });
-  } catch (err) {
-    res.json({ success: true, status: 'active', reason: '' });
-  }
-});
-
-app.post('/api/site-status', async (req, res) => {
-  const { status, reason, adminPin } = req.body;
-  if (adminPin !== "201049") {
-    return res.status(403).json({ success: false, message: "Parol noto'g'ri!" });
-  }
-  try {
-    await executeSQL("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('site_status', ?)", [status]);
-    await executeSQL("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('site_reason', ?)", [reason || '']);
-    res.json({ success: true });
+    const testData = await testRes.json();
+    if (testRes.ok) {
+      return res.json({ 
+        success: true, 
+        status: 'active', 
+        maskedKey: apiKey.substring(0, 6) + "••••••••" + apiKey.slice(-4),
+        message: "Gemini API faol va to'liq ishlamoqda! ✅" 
+      });
+    } else {
+      const errMsg = testData.error?.message || "Xatolik";
+      if (errMsg.includes("quota") || errMsg.includes("limit") || errMsg.includes("RESOURCE_EXHAUSTED")) {
+        return res.json({ success: true, status: 'limit', message: "API kalitining limiti/muddati tugagan! ⚠️" });
+      }
+      return res.json({ success: true, status: 'invalid', message: `API kaliti yaroqsiz: ${errMsg}` });
+    }
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// 2. TESTLARNI SAQLASH VA OLISH
+app.post('/api/admin/gemini-key', async (req, res) => {
+  const { apiKey, adminPin } = req.body;
+  if (adminPin !== "201049") return res.status(403).json({ success: false, message: "Parol noto'g'ri!" });
+  try {
+    await executeSQL("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('gemini_api_key', ?)", [apiKey ? apiKey.trim() : '']);
+    res.json({ success: true, message: "Gemini API kaliti saqlandi!" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 3. AI TEST GENERATSIYA QILISH
+app.post('/api/ai/generate-test', async (req, res) => {
+  const { subject, topic, prompt, count, adminPin } = req.body;
+  if (adminPin !== "201049") return res.status(403).json({ success: false, message: "Ruxsat berilmagan!" });
+
+  try {
+    const rows = await executeSQL("SELECT value FROM site_settings WHERE key = 'gemini_api_key'");
+    const apiKey = rows[0]?.value;
+
+    if (!apiKey || apiKey.trim() === '') {
+      return res.status(400).json({ success: false, message: "Admin panelda Gemini API kaliti kiritilmagan!" });
+    }
+
+    const questionCount = parseInt(count) || 5;
+    const systemPrompt = `Siz maktab o'quvchilari uchun test tuzuvchi AI o'qituvchisiz. 
+Fan: "${subject}". 
+Mavzu: "${topic}". 
+Qo'shimcha yo'riqnoma: "${prompt || 'Standart darslik bo\'yicha'}". 
+Siz aniq ${questionCount} ta qiziqarli va aniq test savolini tuzishingiz kerak.
+Har bir savolda 3 ta variant bo'lsin (A, B, C).
+To'g'ri javob indexi 0 (A), 1 (B) yoki 2 (C) bo'lsin.
+
+FAQAT va FAQAT quyidagi JSON formatida javob bering, hech qanday markdown belgilari (masalan \`\`\`json) va boshqa so'zlar yozmang:
+[
+  {
+    "q": "Savol matni?",
+    "options": ["A varianti", "B varianti", "C varianti"],
+    "correct": 0
+  }
+]`;
+
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey.trim()}`;
+    const aiRes = await fetch(geminiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: systemPrompt }] }],
+        generationConfig: {
+          temperature: 0.7,
+          responseMimeType: "application/json"
+        }
+      })
+    });
+
+    const aiData = await aiRes.json();
+    if (!aiRes.ok) {
+      throw new Error(aiData.error?.message || "Gemini javob bermadi");
+    }
+
+    const textOutput = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!textOutput) throw new Error("AI dan bo'sh javob qaytdi!");
+
+    let questions = JSON.parse(textOutput.trim());
+    res.json({ success: true, questions });
+  } catch (err) {
+    console.error("AI xatosi:", err.message);
+    res.status(500).json({ success: false, message: `AI xatosi: ${err.message}` });
+  }
+});
+
+// 4. TESTLARNI SAQLASH VA OLISH
 app.post('/api/tests', async (req, res) => {
   const { code, teacher, subject, topic, type, timer, data } = req.body;
   try {
@@ -112,9 +153,7 @@ app.post('/api/tests', async (req, res) => {
 app.get('/api/tests/:code', async (req, res) => {
   try {
     const rows = await executeSQL("SELECT * FROM tests WHERE code = ?", [req.params.code]);
-    if (rows.length === 0) {
-      return res.status(404).json({ success: false, message: "Bunday test topilmadi!" });
-    }
+    if (rows.length === 0) return res.status(404).json({ success: false, message: "Bunday test topilmadi!" });
     const test = rows[0];
     test.data = JSON.parse(test.data);
     res.json({ success: true, test });
@@ -123,15 +162,13 @@ app.get('/api/tests/:code', async (req, res) => {
   }
 });
 
-// 3. O'QUVCHI: RUXSAT SO'ROVLARI
+// 5. RUXSAT SO'ROVLARI
 app.post('/api/request-access', async (req, res) => {
   const { test_code, student_name, student_class } = req.body;
   try {
     const cleanCode = test_code.toLowerCase().replace('result', '').trim();
     const tests = await executeSQL("SELECT code FROM tests WHERE code = ?", [cleanCode]);
-    if (tests.length === 0) {
-      return res.status(404).json({ success: false, message: "Bunday test kodi mavjud emas!" });
-    }
+    if (tests.length === 0) return res.status(404).json({ success: false, message: "Bunday test kodi mavjud emas!" });
 
     const existing = await executeSQL(
       "SELECT id FROM test_requests WHERE test_code = ? AND LOWER(student_name) = LOWER(?) AND student_class = ?",
@@ -167,7 +204,7 @@ app.get('/api/check-request-status/:id', async (req, res) => {
   }
 });
 
-// 4. ADMIN: SO'ROVLARNI BOSHQARISH
+// 6. ADMIN SO'ROV BOSHQARUVI
 app.get('/api/admin/requests/:code', async (req, res) => {
   const cleanCode = req.params.code.toLowerCase().replace('result', '').trim();
   try {
@@ -201,7 +238,7 @@ app.post('/api/admin/update-all-requests', async (req, res) => {
   }
 });
 
-// 5. NATIJALAR
+// 7. NATIJALAR
 app.post('/api/results', async (req, res) => {
   const { test_code, student_name, student_class, score, total, percentage, answers } = req.body;
   try {
@@ -250,7 +287,7 @@ app.delete('/api/results/clear-all/:code', async (req, res) => {
   }
 });
 
-// 6. SEYF TIZIMI
+// 8. SEYF
 app.post('/api/vault/login', async (req, res) => {
   const { pin } = req.body;
   try {
@@ -287,4 +324,4 @@ app.post('/api/vault/save-note', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Server ${PORT}-portda ishlamoqda`));
+app.listen(PORT, () => console.log(`Server ${PORT}-portda barqaror ishlamoqda`));
