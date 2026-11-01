@@ -11,7 +11,7 @@ app.use(cors({
 
 app.use(express.json());
 
-// TURSO SOZLAMALARI
+// TURSO PARAMETRLARI
 const TURSO_URL = "https://test-db-javokh14.aws-ap-northeast-1.turso.io/v2/pipeline";
 const TURSO_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTI5MzczOTMsImlkIjoiMDFhMTcxOGEtZDYwMS03M2Q5LTg5ODktYzgwYjdjOThiNzEwIiwia2lkIjoiZElaN0NzZExlZXZIZkJwU29vWW9nVGNrd3NMczRXSG1LT0x0aTMzT0tPayIsInJpZCI6ImEyMjQ2OWE0LTliMTQtNDRlNC05ZTllLWZjNDMwZmQ4Y2ExYSJ9.z08Y5v1D-2aRxwPq1CdsOlL4o2gTfSRhMiT9rnewTptHtJx5_HZQu-YJ2UQe1F0IxzjUkexmf_7ceyGN1Lw6DA";
 
@@ -36,30 +36,56 @@ async function executeSQL(sql, args = []) {
   });
 
   const data = await response.json();
-  if (!response.ok) throw new Error(data.message || `Turso xatosi: ${response.status}`);  const resObj = data.results?.[0]; if (resObj?.type === "error") throw new Error(resObj.error?.message \vert{}\vert{} "SQL xatosi");  const result = resObj?.response?.result; if (!result \vert{}\vert{} !result.cols) return [];  const cols = result.cols.map(c => c.name); return (result.rows \vert{}\vert{} []).map(row => { const item = {}; cols.forEach((col, idx) => { item[col] = row[idx]?.value !== undefined ? row[idx].value : null; }); return item; }); }  app.get('/', (req, res) => res.send("🚀 EduSmart Backend to'liq ishlamoqda!"));  // 1. SAYT XOLATI app.get('/api/site-status', async (req, res) => { try { const rows = await executeSQL("SELECT key, value FROM site_settings"); const settings = {}; rows.forEach(r => settings[r.key] = r.value); res.json({ success: true, status: settings.site_status \vert{}\vert{} 'active', reason: settings.site_reason \vert{}\vert{} '' }); } catch (err) { res.json({ success: true, status: 'active', reason: '' }); } });  app.post('/api/site-status', async (req, res) => { const { status, reason, adminPin } = req.body; if (adminPin !== "201049") return res.status(403).json({ success: false, message: "Parol noto'g'ri!" }); try { await executeSQL("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('site_status', ?)", [status]); await executeSQL("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('site_reason', ?)", [reason \vert{}\vert{} '']); res.json({ success: true }); } catch (err) { res.status(500).json({ success: false, message: err.message }); } });  // 2. GEMINI BOSHQARUVI VA API CHECKER app.get('/api/admin/gemini-status', async (req, res) => { try { const rows = await executeSQL("SELECT value FROM site_settings WHERE key = 'gemini_api_key'"); const apiKey = rows[0]?.value;  if (!apiKey \vert{}\vert{} apiKey.trim() === '') { return res.json({ success: true, status: 'missing', message: "Gemini API kaliti kiritilmagan!" }); }  // Google Gemini API bilan tekshirish (Ping) const testUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey.trim()}`;
-    const testRes = await fetch(testUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: "ping" }] }]
-      })
-    });
+  if (!response.ok) throw new Error(data.message || `Turso xatosi: ${response.status}`);
 
-    const testData = await testRes.json();
-    if (testRes.ok) {
-      return res.json({ 
-        success: true, 
-        status: 'active', 
-        maskedKey: apiKey.substring(0, 6) + "••••••••" + apiKey.slice(-4),
-        message: "Gemini API faol va to'liq ishlamoqda! ✅" 
-      });
-    } else {
-      const errMsg = testData.error?.message || "Xatolik";
-      if (errMsg.includes("quota") || errMsg.includes("limit") || errMsg.includes("RESOURCE_EXHAUSTED")) {
-        return res.json({ success: true, status: 'limit', message: "API kalitining limiti/muddati tugagan! ⚠️" });
-      }
-      return res.json({ success: true, status: 'invalid', message: `API kaliti yaroqsiz: ${errMsg}` });
-    }
+  const resObj = data.results?.[0];
+  if (resObj?.type === "error") throw new Error(resObj.error?.message || "SQL xatosi");
+
+  const result = resObj?.response?.result;
+  if (!result || !result.cols) return [];
+
+  const cols = result.cols.map(c => c.name);
+  return (result.rows || []).map(row => {
+    const item = {};
+    cols.forEach((col, idx) => {
+      item[col] = row[idx]?.value !== undefined ? row[idx].value : null;
+    });
+    return item;
+  });
+}
+
+app.get('/', (req, res) => res.send("🚀 EduSmart Backend to'liq ishlamoqda!"));
+
+// 1. SAYT XOLATI
+app.get('/api/site-status', async (req, res) => {
+  try {
+    const rows = await executeSQL("SELECT key, value FROM site_settings");
+    const settings = {};
+    rows.forEach(r => settings[r.key] = r.value);
+    res.json({ success: true, status: settings.site_status || 'active', reason: settings.site_reason || '' });
+  } catch (err) {
+    res.json({ success: true, status: 'active', reason: '' });
+  }
+});
+
+app.post('/api/site-status', async (req, res) => {
+  const { status, reason, adminPin } = req.body;
+  if (adminPin !== "201049") return res.status(403).json({ success: false, message: "Parol noto'g'ri!" });
+  try {
+    await executeSQL("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('site_status', ?)", [status]);
+    await executeSQL("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('site_reason', ?)", [reason || '']);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 2. GEMINI BOSHQARUVI VA API CHECKER
+app.get('/api/admin/gemini-status', async (req, res) => {
+  try {
+    const rows = await executeSQL("SELECT value FROM site_settings WHERE key = 'gemini_api_key'");
+    const hasKey = rows.length > 0 && rows[0].value && rows[0].value.trim().length > 0;
+    res.json({ success: true, configured: hasKey });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -69,36 +95,71 @@ app.post('/api/admin/gemini-key', async (req, res) => {
   const { apiKey, adminPin } = req.body;
   if (adminPin !== "201049") return res.status(403).json({ success: false, message: "Parol noto'g'ri!" });
   try {
-    await executeSQL("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('gemini_api_key', ?)", [apiKey ? apiKey.trim() : '']);
-    res.json({ success: true, message: "Gemini API kaliti saqlandi!" });
+    await executeSQL("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('gemini_api_key', ?)", [apiKey.trim()]);
+    res.json({ success: true, message: "Gemini API kaliti muvaffaqiyatli saqlandi!" });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// 3. AI TEST GENERATSIYA QILISH
+app.post('/api/admin/check-gemini', async (req, res) => {
+  const { adminPin } = req.body;
+  if (adminPin !== "201049") return res.status(403).json({ success: false, message: "Parol noto'g'ri!" });
+  try {
+    const rows = await executeSQL("SELECT value FROM site_settings WHERE key = 'gemini_api_key'");
+    if (rows.length === 0 || !rows[0].value || !rows[0].value.trim()) {
+      return res.json({ success: false, status: 'empty', message: "API kalit o'rnatilmagan! Iltimos, pastga kalitni kiriting." });
+    }
+
+    const key = rows[0].value.trim();
+    const testUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+    const testResp = await fetch(testUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts: [{ text: "ping" }] }] })
+    });
+
+    const testData = await testResp.json();
+    if (!testResp.ok) {
+      const errMsg = testData.error?.message || "API xatosi";
+      if (testResp.status === 429 || errMsg.toLowerCase().includes("quota") || errMsg.toLowerCase().includes("limit")) {
+        return res.json({ success: false, status: 'limit', message: "Kalitning tekin limiti/muddati tugagan (Quota Exceeded)!" });
+      }
+      return res.json({ success: false, status: 'invalid', message: `API kalit noto'g'ri yoki yaroqsiz: ${errMsg}` });
+    }
+
+    res.json({ success: true, status: 'active', message: "✅ Gemini API kaliti to'liq faol va ishlamoqda!" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 3. AI TEST GENERATORI
 app.post('/api/ai/generate-test', async (req, res) => {
-  const { subject, topic, prompt, count, adminPin } = req.body;
-  if (adminPin !== "201049") return res.status(403).json({ success: false, message: "Ruxsat berilmagan!" });
+  const { subject, topic, details, count, adminPin } = req.body;
+  if (adminPin !== "201049") return res.status(403).json({ success: false, message: "Ruxsat berilmadi!" });
 
   try {
     const rows = await executeSQL("SELECT value FROM site_settings WHERE key = 'gemini_api_key'");
-    const apiKey = rows[0]?.value;
-
-    if (!apiKey || apiKey.trim() === '') {
-      return res.status(400).json({ success: false, message: "Admin panelda Gemini API kaliti kiritilmagan!" });
+    if (rows.length === 0 || !rows[0].value || !rows[0].value.trim()) {
+      return res.status(400).json({ success: false, message: "Gemini API kaliti topilmadi! Admin paneldan API kalitni kiriting." });
     }
 
-    const questionCount = parseInt(count) || 5;
-    const systemPrompt = `Siz maktab o'quvchilari uchun test tuzuvchi AI o'qituvchisiz. 
-Fan: "${subject}". 
-Mavzu: "${topic}". 
-Qo'shimcha yo'riqnoma: "${prompt || 'Standart darslik bo\'yicha'}". 
-Siz aniq ${questionCount} ta qiziqarli va aniq test savolini tuzishingiz kerak.
-Har bir savolda 3 ta variant bo'lsin (A, B, C).
-To'g'ri javob indexi 0 (A), 1 (B) yoki 2 (C) bo'lsin.
+    const key = rows[0].value.trim();
+    const qCount = parseInt(count) || 5;
 
-FAQAT va FAQAT quyidagi JSON formatida javob bering, hech qanday markdown belgilari (masalan \`\`\`json) va boshqa so'zlar yozmang:
+    const promptText = `Sen o'quvchilar uchun test tuzuvchi professional o'qituvchisan.
+Fan: "${subject}".
+Mavzu: "${topic}".
+Qo'shimcha talablar: "${details || 'Mavzuni to'liq qamrab oluvchi savollar'}".
+Savollar soni: aynan ${qCount} ta.
+
+Har bir savolda:
+- "q": Savol matni (aniq va tushunarli)
+- "options": 3 ta variantdan iborat massiv [A varianti, B varianti, C varianti]
+- "correct": To'g'ri variantning indeksi (0 bo'lsa A, 1 bo'lsa B, 2 bo'lsa C)
+
+Javobni FAQAT quyidagi JSON formatida qaytar, hech qanday qo'shimcha so'z, tushuntirish yoki belgilarsiz:
 [
   {
     "q": "Savol matni?",
@@ -107,32 +168,25 @@ FAQAT va FAQAT quyidagi JSON formatida javob bering, hech qanday markdown belgil
   }
 ]`;
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey.trim()}`;
-    const aiRes = await fetch(geminiUrl, {
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+    const geminiRes = await fetch(geminiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: systemPrompt }] }],
-        generationConfig: {
-          temperature: 0.7,
-          responseMimeType: "application/json"
-        }
-      })
+      body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] })
     });
 
-    const aiData = await aiRes.json();
-    if (!aiRes.ok) {
-      throw new Error(aiData.error?.message || "Gemini javob bermadi");
+    const geminiData = await geminiRes.json();
+    if (!geminiRes.ok) {
+      throw new Error(geminiData.error?.message || "Gemini javob bermadi");
     }
 
-    const textOutput = aiData.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!textOutput) throw new Error("AI dan bo'sh javob qaytdi!");
+    let rawOutput = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
+    rawOutput = rawOutput.replace(/```json/gi, '').replace(/```/g, '').trim();
+    const questions = JSON.parse(rawOutput);
 
-    let questions = JSON.parse(textOutput.trim());
     res.json({ success: true, questions });
   } catch (err) {
-    console.error("AI xatosi:", err.message);
-    res.status(500).json({ success: false, message: `AI xatosi: ${err.message}` });
+    res.status(500).json({ success: false, message: "AI generatsiyasida xatolik: " + err.message });
   }
 });
 
@@ -162,7 +216,7 @@ app.get('/api/tests/:code', async (req, res) => {
   }
 });
 
-// 5. RUXSAT SO'ROVLARI
+// 5. O'QUVCHI: TESTGA RUXSAT SO'ROVI
 app.post('/api/request-access', async (req, res) => {
   const { test_code, student_name, student_class } = req.body;
   try {
@@ -204,7 +258,7 @@ app.get('/api/check-request-status/:id', async (req, res) => {
   }
 });
 
-// 6. ADMIN SO'ROV BOSHQARUVI
+// 6. ADMIN: SO'ROVLARNI BOSHQARISH
 app.get('/api/admin/requests/:code', async (req, res) => {
   const cleanCode = req.params.code.toLowerCase().replace('result', '').trim();
   try {
@@ -324,4 +378,4 @@ app.post('/api/vault/save-note', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Server ${PORT}-portda barqaror ishlamoqda`));
+app.listen(PORT, () => console.log(`Server ${PORT}-portda ishlamoqda`));
