@@ -15,7 +15,6 @@ app.use(express.json());
 const TURSO_URL = "https://test-db-javokh14.aws-ap-northeast-1.turso.io/v2/pipeline";
 const TURSO_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTI5MzczOTMsImlkIjoiMDFhMTcxOGEtZDYwMS03M2Q5LTg5ODktYzgwYjdjOThiNzEwIiwia2lkIjoiZElaN0NzZExlZXZIZkJwU29vWW9nVGNrd3NMczRXSG1LT0x0aTMzT0tPayIsInJpZCI6ImEyMjQ2OWE0LTliMTQtNDRlNC05ZTllLWZjNDMwZmQ4Y2ExYSJ9.z08Y5v1D-2aRxwPq1CdsOlL4o2gTfSRhMiT9rnewTptHtJx5_HZQu-YJ2UQe1F0IxzjUkexmf_7ceyGN1Lw6DA";
 
-// Tozalangan tasdiqlarni xotirada saqlash (o'quvchi testdan chiqib ketmasligi uchun)
 const clearedApprovedCache = new Set();
 
 async function executeSQL(sql, args = []) {
@@ -68,7 +67,7 @@ app.get('/', (req, res) => {
   res.send("🚀 EduSmart Backend to'liq ishlamoqda!");
 });
 
-// 1. SAYT XOLATI
+// 1. SAYT VA FON XOLATI
 app.get('/api/site-status', async (req, res) => {
   try {
     const rows = await executeSQL("SELECT key, value FROM site_settings");
@@ -77,10 +76,20 @@ app.get('/api/site-status', async (req, res) => {
     res.json({
       success: true,
       status: settings.site_status || 'active',
-      reason: settings.site_reason || ''
+      reason: settings.site_reason || '',
+      view_mode: settings.site_view_mode || 'only_bg', // 'only_bg' yoki 'full_panel'
+      bg_type: settings.bg_type || 'image', // 'image' yoki 'video'
+      bg_url: settings.bg_url || 'https://i.pinimg.com/1200x/3f/44/63/3f4463a3878147b4d719ba0e83f68b5d.jpg'
     });
   } catch (err) {
-    res.json({ success: true, status: 'active', reason: '' });
+    res.json({
+      success: true,
+      status: 'active',
+      reason: '',
+      view_mode: 'only_bg',
+      bg_type: 'image',
+      bg_url: 'https://i.pinimg.com/1200x/3f/44/63/3f4463a3878147b4d719ba0e83f68b5d.jpg'
+    });
   }
 });
 
@@ -98,7 +107,29 @@ app.post('/api/site-status', async (req, res) => {
   }
 });
 
-// 2. GEMINI BOSHQARUVI VA API CHECKER
+// 2. BACKGROUND VA SAYT KO'RINISHINI SAQLASH
+app.post('/api/admin/background-settings', async (req, res) => {
+  const { view_mode, bg_type, bg_url, adminPin } = req.body;
+  if (adminPin !== "201049") {
+    return res.status(403).json({ success: false, message: "Parol noto'g'ri!" });
+  }
+  try {
+    if (view_mode) {
+      await executeSQL("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('site_view_mode', ?)", [view_mode]);
+    }
+    if (bg_type) {
+      await executeSQL("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('bg_type', ?)", [bg_type]);
+    }
+    if (bg_url !== undefined) {
+      await executeSQL("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('bg_url', ?)", [bg_url.trim()]);
+    }
+    res.json({ success: true, message: "Fon va sayt ko'rinishi sozlamalari saqlandi!" });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 3. GEMINI BOSHQARUVI VA API CHECKER
 app.get('/api/admin/gemini-status', async (req, res) => {
   try {
     const rows = await executeSQL("SELECT value FROM site_settings WHERE key = 'gemini_api_key'");
@@ -156,7 +187,7 @@ app.post('/api/admin/check-gemini', async (req, res) => {
   }
 });
 
-// 3. AI TEST GENERATORI (Variantlar matni to'liq kafolatlangan)
+// 4. AI TEST GENERATORI
 app.post('/api/ai/generate-test', async (req, res) => {
   const { subject, topic, details, count, adminPin } = req.body;
   if (adminPin !== "201049") {
@@ -220,7 +251,6 @@ Namunaviy format:
     let parsed = JSON.parse(rawOutput);
     if (!Array.isArray(parsed)) parsed = [];
 
-    // Har bir variant matnini tekshirish va tozalash
     const cleanQuestions = parsed.map(item => {
       let opts = [];
       if (Array.isArray(item.options)) {
@@ -249,7 +279,7 @@ Namunaviy format:
   }
 });
 
-// 4. TESTLARNI SAQLASH VA OLISH
+// 5. TESTLARNI SAQLASH VA OLISH
 app.post('/api/tests', async (req, res) => {
   const { code, teacher, subject, topic, type, timer, data } = req.body;
   try {
@@ -277,7 +307,7 @@ app.get('/api/tests/:code', async (req, res) => {
   }
 });
 
-// 5. TESTGA RUXSAT SO'ROVLARI
+// 6. TESTGA RUXSAT SO'ROVLARI
 app.post('/api/request-access', async (req, res) => {
   const { test_code, student_name, student_class } = req.body;
   try {
@@ -315,7 +345,6 @@ app.get('/api/check-request-status/:id', async (req, res) => {
   try {
     const rows = await executeSQL("SELECT status FROM test_requests WHERE id = ?", [req.params.id]);
     if (rows.length === 0) {
-      // Agar admin ro'yxatni tozalagan bo'lsa, lekin o'quvchi tasdiqlangan bo'lsa, uni aslo chiqarmaymiz
       if (clearedApprovedCache.has(String(req.params.id))) {
         return res.json({ success: true, status: 'approved' });
       }
@@ -327,7 +356,7 @@ app.get('/api/check-request-status/:id', async (req, res) => {
   }
 });
 
-// 6. ADMIN SO'ROVLAR BOSHQARUVI VA TOZALASH
+// 7. ADMIN SO'ROVLAR BOSHQARUVI VA TOZALASH
 app.get('/api/admin/requests/:code', async (req, res) => {
   const cleanCode = req.params.code.toLowerCase().replace('result', '').trim();
   try {
@@ -368,7 +397,6 @@ app.post('/api/admin/update-all-requests', async (req, res) => {
   }
 });
 
-// RUXSAT SO'ROVLARINI BEZARAR TOZALASH (O'quvchi testdan chiqib ketmaydi)
 app.post('/api/admin/clear-requests', async (req, res) => {
   const { test_code, adminPin } = req.body;
   if (adminPin !== "201049") return res.status(403).json({ success: false, message: "Parol noto'g'ri!" });
@@ -384,7 +412,7 @@ app.post('/api/admin/clear-requests', async (req, res) => {
   }
 });
 
-// 7. NATIJALAR
+// 8. NATIJALAR
 app.post('/api/results', async (req, res) => {
   const { test_code, student_name, student_class, score, total, percentage, answers } = req.body;
   try {
@@ -437,7 +465,7 @@ app.delete('/api/results/clear-all/:code', async (req, res) => {
   }
 });
 
-// 8. SEYF
+// 9. SEYF
 app.post('/api/vault/login', async (req, res) => {
   const { pin } = req.body;
   try {
